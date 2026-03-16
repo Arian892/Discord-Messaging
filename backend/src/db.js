@@ -7,6 +7,7 @@ const pool = new Pool({
     ssl: {
         rejectUnauthorized: false
     },
+    max:10,
     family: 4, // Use IPv4
 });
 
