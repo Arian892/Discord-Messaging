@@ -159,7 +159,11 @@ export interface MessageReactionApiItem {
   id: string | number;
   emoji: string;
   user_id: string | number;
-  username?: string;
+  user?: {
+    id: string | number;
+    username: string;
+    display_name?: string | null;
+  };
 }
 
 export interface MessageApiItem {
@@ -169,6 +173,11 @@ export interface MessageApiItem {
   edited_at?: string | null;
   author_id?: string | number;
   channel_id?: string | number;
+  author?: {
+    id: string | number;
+    username: string;
+    display_name?: string | null;
+  };
   attachments?: MessageAttachmentApiItem[];
   reactions?: MessageReactionApiItem[];
 }
@@ -285,6 +294,24 @@ export const updateMessageContent = async (options: {
       method: "PUT",
       token,
       body: { content },
+    }
+  );
+};
+
+export const deleteMessageAttachments = async (options: {
+  serverId: string;
+  channelId: string;
+  messageId: string;
+  deleteAttachmentIds: string[];
+  token: string;
+}) => {
+  const { serverId, channelId, messageId, deleteAttachmentIds, token } = options;
+  return apiRequest<{ message: MessageApiItem; deletedAttachmentIds: string[] }>(
+    `/servers/${serverId}/channels/${channelId}/messages/${messageId}`,
+    {
+      method: "PUT",
+      token,
+      body: { deleteAttachmentIds },
     }
   );
 };

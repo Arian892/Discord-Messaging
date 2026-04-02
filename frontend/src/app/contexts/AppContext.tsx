@@ -3,6 +3,7 @@ import { useAuth } from "./AuthContext";
 import {
   addReactionToMessage,
   deleteMessageById,
+  deleteMessageAttachments,
   getChannelsByServer,
   getMessagesByChannel,
   getPinnedMessages,
@@ -77,6 +78,7 @@ interface AppContextType {
   setSelectedChannel: (channelId: string) => void;
   sendMessage: (content: string, channelId: string, attachments?: File[]) => Promise<void>;
   editMessage: (messageId: string, content: string) => Promise<void>;
+  deleteMessageAttachments: (messageId: string, attachmentIds: string[]) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   toggleReaction: (messageId: string, emoji: string, userId: string) => Promise<void>;
   togglePin: (messageId: string) => Promise<void>;
@@ -217,10 +219,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       reactions.forEach((reaction) => {
         const emoji = String(reaction.emoji);
+        const reactorId = reaction.user?.id ?? reaction.user_id;
         if (!reactionMap.has(emoji)) {
           reactionMap.set(emoji, new Set());
         }
-        reactionMap.get(emoji)?.add(String(reaction.user_id));
+        reactionMap.get(emoji)?.add(String(reactorId));
       });
 
       return Array.from(reactionMap.entries()).map(([emoji, userIds]) => ({
@@ -230,24 +233,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
     };
 
-    const mapMessage = (message: MessageApiItem, fallbackUserId: string) => ({
-      id: String(message.id),
-      content: message.content,
-      userId: String(message.author_id ?? fallbackUserId),
-      channelId: String(message.channel_id ?? selectedChannelId),
-      createdAt: message.created_at,
-      updatedAt: message.edited_at ?? undefined,
-      edited: Boolean(message.edited_at),
-      reactions: mapReactions(message.reactions ?? []),
-      pinned: false,
-      attachments: (message.attachments ?? []).map((attachment) => ({
-        id: String(attachment.id),
-        fileUrl: attachment.file_url,
-        fileName: attachment.file_name,
-        fileSize: attachment.file_size,
-        mimeType: attachment.mime_type,
-      })),
-    });
+    const mapMessage = (message: MessageApiItem, fallbackUserId: string) => {
+      const authorId = message.author?.id ?? message.author_id ?? fallbackUserId;
+
+      return {
+        id: String(message.id),
+        content: message.content,
+        userId: String(authorId),
+        channelId: String(message.channel_id ?? selectedChannelId),
+        createdAt: message.created_at,
+        updatedAt: message.edited_at ?? undefined,
+        edited: Boolean(message.edited_at),
+        reactions: mapReactions(message.reactions ?? []),
+        pinned: false,
+        attachments: (message.attachments ?? []).map((attachment) => ({
+          id: String(attachment.id),
+          fileUrl: attachment.file_url,
+          fileName: attachment.file_name,
+          fileSize: attachment.file_size,
+          mimeType: attachment.mime_type,
+        })),
+      };
+    };
 
     const loadMessages = async () => {
       try {
@@ -265,6 +272,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const mapped = mapMessage(message, fallbackUserId);
           return { ...mapped, pinned: pinnedIds.has(mapped.id) };
         });
+
+        const newUsers = new Map<string, UserProfile>();
+        messageResponse.messages.forEach((message) => {
+          if (message.author) {
+            const id = String(message.author.id);
+            newUsers.set(id, {
+              id,
+              username: message.author.username,
+              displayName: message.author.display_name || message.author.username,
+              avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${message.author.username}`,
+              status: "online",
+            });
+          }
+
+          (message.reactions ?? []).forEach((reaction) => {
+            if (!reaction.user) return;
+            const id = String(reaction.user.id);
+            newUsers.set(id, {
+              id,
+              username: reaction.user.username,
+              displayName: reaction.user.display_name || reaction.user.username,
+              avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${reaction.user.username}`,
+              status: "online",
+            });
+          });
+        });
+
+        if (!cancelled && newUsers.size > 0) {
+          setUsers((prev) => {
+            const existingIds = new Set(prev.map((entry) => entry.id));
+            const merged = [...prev];
+            newUsers.forEach((profile, id) => {
+              if (!existingIds.has(id)) {
+                merged.push(profile);
+              }
+            });
+            return merged;
+          });
+        }
 
         if (!cancelled) {
           setMessages(mappedMessages);
@@ -361,6 +407,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
           : msg
       )
+    );
+  };
+
+  const deleteMessageAttachmentsHandler = async (
+    messageId: string,
+    attachmentIds: string[]
+  ) => {
+    if (!token || !selectedServerId || !selectedChannelId) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await deleteMessageAttachments({
+      serverId: selectedServerId,
+      channelId: selectedChannelId,
+      messageId,
+      deleteAttachmentIds: attachmentIds,
+      token,
+    });
+
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id !== messageId) return msg;
+
+        const removed = new Set(response.deletedAttachmentIds || attachmentIds);
+        const remaining = (msg.attachments || []).filter(
+          (attachment) => !removed.has(attachment.id)
+        );
+
+        return { ...msg, attachments: remaining };
+      })
     );
   };
 
@@ -491,6 +567,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setSelectedChannel,
         sendMessage,
         editMessage,
+        deleteMessageAttachments: deleteMessageAttachmentsHandler,
         deleteMessage,
         toggleReaction,
         togglePin,

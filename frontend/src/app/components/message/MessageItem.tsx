@@ -2,9 +2,15 @@ import { useState } from "react";
 import { Message, useApp } from "../../contexts/AppContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
-import { Edit, Trash2, Pin, Smile, MoreVertical } from "lucide-react";
+import { Edit, Trash2, Pin, Smile, MoreVertical, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "../ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,6 +55,7 @@ export function MessageItem({ message }: MessageItemProps) {
 
   const messageUser = users.find((u) => u.id === message.userId);
   const currentUserId = authUser?.id || "user-1";
+  const isAuthor = authUser?.id === message.userId;
 
   if (!messageUser) return null;
 
@@ -145,32 +152,71 @@ export function MessageItem({ message }: MessageItemProps) {
                 {message.content}
               </p>
 
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {message.attachments.map((attachment) => (
+                    <a
+                      key={attachment.id}
+                      href={attachment.fileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex max-w-[380px] items-center gap-3 rounded-lg border border-[#1e1f22] bg-[#1f2024] px-3 py-2 transition-colors hover:border-[#5865f2]/60"
+                    >
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#2b2d31] text-[#b5bac1]">
+                        <FileText className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[#dbdee1] truncate">
+                          {attachment.fileName}
+                        </p>
+                        <p className="text-xs text-[#949ba4]">Attachment</p>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+
               {/* Reactions */}
               {message.reactions.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1">
                   {message.reactions.map((reaction) => {
                     const hasReacted = reaction.userIds.includes(currentUserId);
+                    const reactorNames = reaction.userIds
+                      .map((id) => users.find((entry) => entry.id === id))
+                      .filter(Boolean)
+                      .map((entry) => entry?.displayName || entry?.username || "Unknown")
+                      .join(", ");
                     return (
-                      <motion.button
-                        key={reaction.emoji}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleReactionClick(reaction.emoji)}
-                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-sm transition-colors ${
-                          hasReacted
-                            ? "bg-[#5865f2]/20 border border-[#5865f2]/50"
-                            : "bg-[#2e3035] border border-[#3f4147] hover:border-[#5865f2]/30"
-                        }`}
-                      >
-                        <span>{reaction.emoji}</span>
-                        <span
-                          className={`text-xs ${
-                            hasReacted ? "text-[#dbdee1]" : "text-[#b5bac1]"
-                          }`}
-                        >
-                          {reaction.count}
-                        </span>
-                      </motion.button>
+                      <TooltipProvider key={reaction.emoji} delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleReactionClick(reaction.emoji)}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-sm transition-colors ${
+                                hasReacted
+                                  ? "bg-[#5865f2]/20 border border-[#5865f2]/50"
+                                  : "bg-[#2e3035] border border-[#3f4147] hover:border-[#5865f2]/30"
+                              }`}
+                            >
+                              <span>{reaction.emoji}</span>
+                              <span
+                                className={`text-xs ${
+                                  hasReacted ? "text-[#dbdee1]" : "text-[#b5bac1]"
+                                }`}
+                              >
+                                {reaction.count}
+                              </span>
+                            </motion.button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="bg-[#111827] border-[#1e1f22]">
+                            <span className="text-xs text-[#dbdee1]">
+                              {reactorNames || "No reactors"}
+                            </span>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     );
                   })}
                 </div>
@@ -196,14 +242,16 @@ export function MessageItem({ message }: MessageItemProps) {
                 >
                   <Smile className="w-[18px] h-[18px]" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsEditing(true)}
-                  className="h-8 w-8 p-0 hover:bg-[#404249] text-[#b5bac1] hover:text-white rounded-none"
-                >
-                  <Edit className="w-[18px] h-[18px]" />
-                </Button>
+                {isAuthor && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsEditing(true)}
+                    className="h-8 w-8 p-0 hover:bg-[#404249] text-[#b5bac1] hover:text-white rounded-none"
+                  >
+                    <Edit className="w-[18px] h-[18px]" />
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -212,33 +260,35 @@ export function MessageItem({ message }: MessageItemProps) {
                 >
                   <Pin className="w-[18px] h-[18px]" />
                 </Button>
-                <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 hover:bg-[#404249] text-[#b5bac1] hover:text-white rounded-none last:rounded-r focus:outline-none"
-                    >
-                      <MoreVertical className="w-[18px] h-[18px]" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="bg-[#111827] border-[#1e1f22] text-[#b5bac1]">
-                    <DropdownMenuItem
-                      onSelect={(e) => {
-                        e.preventDefault();
-                        setDropdownOpen(false);
-                        setTimeout(() => {
-                          setShowDeleteDialog(true);
-                          setIsHovered(false);
-                        }, 100);
-                      }}
-                      className="text-[#f23f42] focus:text-[#f23f42] focus:bg-[#f23f42]/10 cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete Message
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {isAuthor && (
+                  <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 hover:bg-[#404249] text-[#b5bac1] hover:text-white rounded-none last:rounded-r focus:outline-none"
+                      >
+                        <MoreVertical className="w-[18px] h-[18px]" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="bg-[#111827] border-[#1e1f22] text-[#b5bac1]">
+                      <DropdownMenuItem
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          setDropdownOpen(false);
+                          setTimeout(() => {
+                            setShowDeleteDialog(true);
+                            setIsHovered(false);
+                          }, 100);
+                        }}
+                        className="text-[#f23f42] focus:text-[#f23f42] focus:bg-[#f23f42]/10 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete Message
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -254,13 +304,15 @@ export function MessageItem({ message }: MessageItemProps) {
 
       {/* Context Menu */}
       <ContextMenuContent className="bg-[#111827] border-[#1e1f22] text-[#b5bac1]">
-        <ContextMenuItem
-          onClick={() => setIsEditing(true)}
-          className="focus:bg-[#4e5058] focus:text-white"
-        >
-          <Edit className="w-4 h-4 mr-2" />
-          Edit Message
-        </ContextMenuItem>
+        {isAuthor && (
+          <ContextMenuItem
+            onClick={() => setIsEditing(true)}
+            className="focus:bg-[#4e5058] focus:text-white"
+          >
+            <Edit className="w-4 h-4 mr-2" />
+            Edit Message
+          </ContextMenuItem>
+        )}
         <ContextMenuItem
           onClick={handlePin}
           className="focus:bg-[#4e5058] focus:text-white"
@@ -268,14 +320,18 @@ export function MessageItem({ message }: MessageItemProps) {
           <Pin className="w-4 h-4 mr-2" />
           {message.pinned ? "Unpin" : "Pin"} Message
         </ContextMenuItem>
-        <ContextMenuSeparator className="bg-[#3f4147]" />
-        <ContextMenuItem
-          onClick={() => setShowDeleteDialog(true)}
-          className="text-[#f23f42] focus:text-[#f23f42] focus:bg-[#f23f42]/10"
-        >
-          <Trash2 className="w-4 h-4 mr-2" />
-          Delete Message
-        </ContextMenuItem>
+        {isAuthor && (
+          <>
+            <ContextMenuSeparator className="bg-[#3f4147]" />
+            <ContextMenuItem
+              onClick={() => setShowDeleteDialog(true)}
+              className="text-[#f23f42] focus:text-[#f23f42] focus:bg-[#f23f42]/10"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Message
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
 
       {/* Edit Dialog */}
